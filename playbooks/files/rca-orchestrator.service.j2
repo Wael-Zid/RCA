@@ -1,0 +1,16 @@
+[Unit]
+Description=RCA Cross-Pillar Orchestrator
+After=network.target
+
+[Service]
+User=deploy
+WorkingDirectory={{ rca_app_dir }}
+Environment="PROMETHEUS_MCP_URL={{ prometheus_mcp_url }}"
+Environment="LOKI_MCP_URL={{ loki_mcp_url }}"
+Environment="JAEGER_MCP_URL={{ jaeger_mcp_url }}"
+ExecStart={{ rca_app_dir }}/venv/bin/uvicorn app:app --host 0.0.0.0 --port {{ rca_port }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

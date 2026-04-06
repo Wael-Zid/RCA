@@ -1,0 +1,15 @@
+[Unit]
+Description=Loki MCP Bridge
+After=network.target
+
+[Service]
+User=deploy
+WorkingDirectory={{ loki_app_dir }}
+ExecStart={{ loki_app_dir }}/venv/bin/uvicorn app:app --host 0.0.0.0 --port {{ loki_port }}
+
+Environment="LOKI_URL={{ loki_url }}"
+
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

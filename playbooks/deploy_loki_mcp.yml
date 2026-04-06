@@ -1,0 +1,58 @@
+- name: Deploy Loki MCP Bridge
+  hosts: ai
+  become: true
+
+  vars:
+    venv_path: "{{ loki_app_dir }}/venv"
+
+  tasks:
+    - name: Create app directory
+      file:
+        path: "{{ loki_app_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy Loki app
+      copy:
+        src: files/app_loki.py
+        dest: "{{ loki_app_dir }}/app.py"
+        mode: "0644"
+
+    - name: Copy requirements
+      copy:
+        src: files/requirements.txt
+        dest: "{{ loki_app_dir }}/requirements.txt"
+
+    - name: Create virtualenv
+      command: python3 -m venv {{ venv_path }}
+      args:
+        creates: "{{ venv_path }}/bin/activate"
+
+    - name: Install dependencies
+      pip:
+        requirements: "{{ loki_app_dir }}/requirements.txt"
+        virtualenv: "{{ venv_path }}"
+
+    - name: Deploy systemd service
+      template:
+        src: files/loki-mcp.service.j2
+        dest: "/etc/systemd/system/{{ loki_service_name }}.service"
+      notify:
+        - Reload systemd
+        - Restart loki-mcp
+
+    - name: Enable and start Loki MCP
+      systemd:
+        name: "{{ loki_service_name }}"
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Restart loki-mcp
+      systemd:
+        name: "{{ loki_service_name }}"
+        state: restarted

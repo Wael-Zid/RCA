@@ -1,0 +1,14 @@
+[Unit]
+Description=Prometheus MCP FastAPI Service
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory={{ mcp_app_dir }}
+Environment="PROMETHEUS_URL={{ prometheus_url }}"
+ExecStart={{ mcp_app_dir }}/venv/bin/uvicorn app:app --host 0.0.0.0 --port {{ mcp_port }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

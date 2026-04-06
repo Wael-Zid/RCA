@@ -1,0 +1,73 @@
+---
+- name: Deploy Jaeger MCP Bridge
+  hosts: ai
+  become: true
+
+  vars:
+    venv_path: "{{ jaeger_app_dir }}/venv"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+
+    - name: Install required packages
+      apt:
+        name:
+          - python3
+          - python3-venv
+          - python3-pip
+        state: present
+
+    - name: Create app directory
+      file:
+        path: "{{ jaeger_app_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy Jaeger app
+      copy:
+        src: files/app_jaeger.py
+        dest: "{{ jaeger_app_dir }}/app.py"
+        mode: "0644"
+
+    - name: Copy requirements.txt
+      copy:
+        src: files/requirements_jaeger.txt
+        dest: "{{ jaeger_app_dir }}/requirements.txt"
+        mode: "0644"
+
+    - name: Create virtualenv
+      command: python3 -m venv {{ venv_path }}
+      args:
+        creates: "{{ venv_path }}/bin/activate"
+
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ jaeger_app_dir }}/requirements.txt"
+        virtualenv: "{{ venv_path }}"
+
+    - name: Deploy systemd service
+      template:
+        src: files/jaeger-mcp.service.j2
+        dest: "/etc/systemd/system/{{ jaeger_service_name }}.service"
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart jaeger-mcp
+
+    - name: Enable and start service
+      systemd:
+        name: "{{ jaeger_service_name }}"
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Restart jaeger-mcp
+      systemd:
+        name: "{{ jaeger_service_name }}"
+        state: restarted

@@ -1,0 +1,237 @@
+AI RCA SYSTEM (MVP) - ENTERPRISE DEVOPS README
+==============================================
+
+1. OBJECTIF
+-----------
+Ce système implémente un moteur de Root Cause Analysis (RCA) basé sur les trois piliers de l’observabilité :
+
+- Metrics → Prometheus
+- Logs → Loki
+- Traces → Jaeger
+
+Un orchestrateur permet à un LLM de corréler ces données afin d’identifier automatiquement la cause racine d’un incident.
+
+---
+
+2. USER STORIES COUVERTES
+-------------------------
+
+E2-02: Prometheus MCP Server
+E2-03: Loki MCP Server
+E2-16: Jaeger MCP Server
+E2-17: Cross-pillar Correlation
+
+Toutes les stories sont implémentées sous forme de services FastAPI indépendants exposés via HTTP.
+
+---
+
+3. ARCHITECTURE
+---------------
+
+          +-----------------------------+
+          |   RCA Orchestrator (8094)   |
+          +-------------+---------------+
+                        |
+        -----------------------------------------
+        |                 |                     |
+        ↓                 ↓                     ↓
+ Prometheus MCP     Loki MCP             Jaeger MCP
+    (8091)            (8092)               (8093)
+
+        ↓                 ↓                     ↓
+   Prometheus          Loki                Jaeger
+
+---
+
+4. E2-02 — PROMETHEUS MCP
+-------------------------
+
+Port: 8091
+
+Fonctionnalités :
+- query_instant(promql)
+- query_range(promql, start, end, step)
+- get_alerts()
+- get_targets()
+
+Contraintes :
+- Read-only (aucune écriture)
+- PROMETHEUS_URL configurable via variable d’environnement
+- Logging structuré JSON pour chaque requête
+
+Healthcheck :
+GET /health
+- Vérifie disponibilité du service
+- Vérifie connectivité Prometheus
+
+Logging :
+- timestamp
+- promql
+- durée d’exécution
+- statut
+
+---
+
+5. E2-03 — LOKI MCP
+-------------------
+
+Port: 8092
+
+Fonctionnalités :
+- query_logs(logql, start, end, limit)
+- get_label_values(label)
+- get_log_volume(logql, start, end)
+
+Contraintes :
+- Maximum 50 lignes retournées (hard cap)
+- Read-only
+- LOKI_URL configurable via variable d’environnement
+
+Healthcheck :
+GET /health
+- Vérifie disponibilité du service
+- Vérifie connectivité Loki
+
+---
+
+6. E2-16 — JAEGER MCP
+---------------------
+
+Port: 8093
+
+Fonctionnalités :
+- find_traces(service, operation, start, end, limit, tags)
+- get_trace(trace_id)
+- get_services()
+- get_operations(service)
+
+Contraintes :
+- Read-only
+- JAEGER_URL configurable via variable d’environnement
+- Les traces incluent trace_id pour corrélation
+
+Healthcheck :
+GET /health
+- Vérifie disponibilité du service
+- Vérifie connectivité Jaeger
+
+---
+
+7. E2-17 — CORRELATION MULTI-PILIERS
+------------------------------------
+
+Objectif :
+Corréler métriques, logs et traces sur une même fenêtre temporelle.
+
+Workflow RCA :
+
+1. Définir une fenêtre temporelle (T-15min → T)
+2. Interroger Prometheus (latence, erreurs)
+3. Interroger Loki (logs d’erreurs)
+4. Extraire trace_id depuis les logs
+5. Interroger Jaeger (traces correspondantes)
+6. Identifier service défaillant
+7. Revalider via métriques Prometheus
+
+Corrélations implémentées :
+
+- Time-based correlation
+- Trace ↔ Logs (via trace_id)
+- Trace ↔ Metrics (service défaillant)
+- Logs ↔ Metrics (patterns + anomalies)
+
+Output RCA :
+- metrics utilisés
+- logs utilisés
+- traces utilisées
+- root cause identifiée
+
+---
+
+8. CONFIGURATION
+----------------
+
+Variables d’environnement :
+
+PROMETHEUS_URL=http://<host>:9090
+LOKI_URL=http://<host>:3100
+JAEGER_URL=http://<host>:16686
+
+Ports :
+- 8091 : Prometheus MCP
+- 8092 : Loki MCP
+- 8093 : Jaeger MCP
+- 8094 : RCA Orchestrator
+
+---
+
+9. DEPLOIEMENT
+--------------
+
+Cible :
+- VM unique (AI/LLM VM)
+
+Technologie :
+- Ansible
+
+Commandes :
+
+ansible-playbook deploy_prometheus_mcp.yml
+ansible-playbook deploy_loki_mcp.yml
+ansible-playbook deploy_jaeger_mcp.yml
+ansible-playbook deploy_rca_orchestrator.yml
+
+---
+
+10. EXECUTION LOCALE
+--------------------
+
+uvicorn app_prometheus:app --port 8091
+uvicorn app_loki:app --port 8092
+uvicorn app_jaeger:app --port 8093
+uvicorn app_rca:app --port 8094
+
+---
+
+11. OBSERVABILITE INTERNE
+-------------------------
+
+Logs :
+- journalctl (systemd)
+
+Exemples :
+journalctl -u prometheus-mcp -f
+journalctl -u rca-orchestrator -f
+
+---
+
+12. SECURITE
+------------
+
+- Accès en lecture seule
+- Aucun endpoint d’écriture
+- Accès réseau à restreindre (firewall recommandé)
+
+Améliorations possibles :
+- Authentification API
+- HTTPS via reverse proxy
+
+---
+
+13. PERFORMANCE
+---------------
+
+- Limitation Loki à 50 logs par requête
+- Requêtes Prometheus optimisées
+- RCA basé sur corrélation simple (MVP)
+
+---
+
+14. RISQUES
+-----------
+
+- Dépendance aux systèmes observabilité
+- Latence des backends
+- Absence de ML (corrélation heuristique)
+
+---

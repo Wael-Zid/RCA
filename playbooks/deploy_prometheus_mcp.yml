@@ -1,0 +1,73 @@
+---
+- name: Deploy Prometheus MCP Bridge
+  hosts: ai
+  become: true
+
+  vars:
+    venv_path: "{{ mcp_app_dir }}/venv"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+
+    - name: Install required packages
+      apt:
+        name:
+          - python3
+          - python3-venv
+          - python3-pip
+        state: present
+
+    - name: Create app directory
+      file:
+        path: "{{ mcp_app_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy app_prometheus.py
+      copy:
+        src: files/app_prometheus
+        dest: "{{ mcp_app_dir }}/app.py"
+        mode: "0644"
+
+    - name: Copy requirements.txt
+      copy:
+        src: files/requirements.txt
+        dest: "{{ mcp_app_dir }}/requirements.txt"
+        mode: "0644"
+
+    - name: Create virtualenv
+      command: python3 -m venv {{ venv_path }}
+      args:
+        creates: "{{ venv_path }}/bin/activate"
+
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ mcp_app_dir }}/requirements.txt"
+        virtualenv: "{{ venv_path }}"
+
+    - name: Deploy systemd service
+      template:
+        src: files/prometheus-mcp.service.j2
+        dest: "/etc/systemd/system/{{ mcp_service_name }}.service"
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart prometheus-mcp
+
+    - name: Enable and start service
+      systemd:
+        name: "{{ mcp_service_name }}"
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Restart prometheus-mcp
+      systemd:
+        name: "{{ mcp_service_name }}"
+        state: restarted

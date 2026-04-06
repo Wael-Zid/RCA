@@ -1,0 +1,26 @@
+mcp_port: 8091
+prometheus_url: "http://192.168.224.128:9090"
+
+loki_port: 8092
+loki_url: "http://192.168.224.128:3100"
+
+jaeger_port: 8093
+jaeger_url: "http://192.168.224.128:16686"
+
+rca_port: 8094
+rca_app_dir: /opt/rca-orchestrator
+rca_service_name: rca-orchestrator
+
+prometheus_mcp_url: "http://127.0.0.1:8091"
+loki_mcp_url: "http://127.0.0.1:8092"
+jaeger_mcp_url: "http://127.0.0.1:8093"
+
+mcp_app_dir: /opt/prometheus-mcp
+mcp_service_name: prometheus-mcp
+
+
+loki_app_dir: /opt/loki-mcp
+loki_service_name: loki-mcp
+
+jaeger_app_dir: /opt/jaeger-mcp
+jaeger_service_name: jaeger-mcp

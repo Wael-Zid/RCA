@@ -1,0 +1,7 @@
+all:
+  children:
+    ai:
+      hosts:
+        ai-vm:
+          ansible_host: 192.168.224.129
+          ansible_user: deploy
