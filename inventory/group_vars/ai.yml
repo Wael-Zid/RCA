@@ -24,3 +24,8 @@ loki_service_name: loki-mcp
 
 jaeger_app_dir: /opt/jaeger-mcp
 jaeger_service_name: jaeger-mcp
+
+history_port: 8095
+history_app_dir: /opt/history-mcp
+history_service_name: history-mcp
+rca_history_db_path: /data/rca_history.db

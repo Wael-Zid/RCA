@@ -1,5 +1,8 @@
+import json
 import os
 import re
+import sqlite3
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -10,12 +13,43 @@ PROMETHEUS_MCP_URL = os.getenv("PROMETHEUS_MCP_URL", "http://127.0.0.1:8091").rs
 LOKI_MCP_URL = os.getenv("LOKI_MCP_URL", "http://127.0.0.1:8092").rstrip("/")
 JAEGER_MCP_URL = os.getenv("JAEGER_MCP_URL", "http://127.0.0.1:8093").rstrip("/")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "15"))
+RCA_DB_PATH = os.getenv("RCA_HISTORY_DB_PATH", "/data/rca_history.db")
 
 app = FastAPI(
     title="RCA Cross-Pillar Orchestrator",
     version="1.0.0",
     description="Correlates metrics, logs and traces for automated RCA."
 )
+
+
+def init_db() -> None:
+    db_dir = Path(RCA_DB_PATH).parent
+    db_dir.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(RCA_DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS rca_decisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            alert_name TEXT,
+            root_cause TEXT,
+            confidence TEXT,
+            metrics_json TEXT,
+            logs_json TEXT,
+            traces_json TEXT,
+            raw_json TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_db()
 
 
 def now_utc() -> datetime:
@@ -54,12 +88,14 @@ def get_json(url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any
 
 def extract_trace_ids(logs: List[Dict[str, Any]]) -> List[str]:
     pattern = re.compile(r'(?:trace[_-]?id|traceID)[=: ]([a-fA-F0-9]+)')
-    found = []
+    found: List[str] = []
+
     for item in logs:
         line = item.get("line", "")
         match = pattern.search(line)
         if match:
             found.append(match.group(1))
+
     return list(dict.fromkeys(found))
 
 
@@ -91,8 +127,67 @@ def find_failing_service(trace: Dict[str, Any]) -> Optional[str]:
     return failing
 
 
-def summarize_metric_vector(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def summarize_metric_vector(data: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not data:
+        return []
     return data.get("result", [])
+
+
+def save_rca(alert_name: str, result: Dict[str, Any]) -> int:
+    conn = sqlite3.connect(RCA_DB_PATH)
+    cur = conn.cursor()
+
+    evidence = result.get("evidence", {})
+
+    cur.execute("""
+        INSERT INTO rca_decisions (
+            timestamp, alert_name, root_cause, confidence,
+            metrics_json, logs_json, traces_json, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        datetime.now(timezone.utc).isoformat(),
+        alert_name,
+        result.get("root_cause"),
+        result.get("confidence"),
+        json.dumps(evidence.get("metrics", {}), ensure_ascii=False),
+        json.dumps(evidence.get("logs", []), ensure_ascii=False),
+        json.dumps(evidence.get("traces", {}), ensure_ascii=False),
+        json.dumps(result, ensure_ascii=False),
+    ))
+
+    conn.commit()
+    rca_id = cur.lastrowid
+    conn.close()
+
+    return rca_id
+
+
+def fetch_decisions(limit: int = 50, alert_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    conn = sqlite3.connect(RCA_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    safe_limit = max(1, min(limit, 500))
+
+    if alert_name:
+        cur.execute("""
+            SELECT *
+            FROM rca_decisions
+            WHERE alert_name = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (alert_name, safe_limit))
+    else:
+        cur.execute("""
+            SELECT *
+            FROM rca_decisions
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (safe_limit,))
+
+    rows = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return rows
 
 
 @app.get("/health")
@@ -102,6 +197,16 @@ def health() -> Dict[str, Any]:
         "prometheus_mcp_url": PROMETHEUS_MCP_URL,
         "loki_mcp_url": LOKI_MCP_URL,
         "jaeger_mcp_url": JAEGER_MCP_URL,
+        "rca_history_db_path": RCA_DB_PATH,
+    }
+
+
+@app.get("/decisions")
+def get_decisions(limit: int = 50, alert_name: Optional[str] = None) -> Dict[str, Any]:
+    rows = fetch_decisions(limit=limit, alert_name=alert_name)
+    return {
+        "count": len(rows),
+        "decisions": rows,
     }
 
 
@@ -178,12 +283,15 @@ def run_rca() -> Dict[str, Any]:
     confidence = "medium"
 
     if failing_service and trace_data and logs:
-        root_cause = f"Le service {failing_service} apparaît comme le service le plus probable en erreur, confirmé par les logs et les spans Jaeger."
+        root_cause = (
+            f"Le service {failing_service} apparaît comme le service le plus probable "
+            f"en erreur, confirmé par les logs et les spans Jaeger."
+        )
         confidence = "high"
     elif logs:
         root_cause = "Des erreurs applicatives ont été détectées dans Loki, mais la corrélation de trace reste partielle."
 
-    return {
+    result = {
         "time_window": {
             "start": start_rfc3339,
             "end": end_rfc3339,
@@ -194,7 +302,7 @@ def run_rca() -> Dict[str, Any]:
             "metrics": {
                 "latency": summarize_metric_vector(latency_metrics),
                 "errors": summarize_metric_vector(error_metrics),
-                "service_check": summarize_metric_vector(service_metrics) if service_metrics else [],
+                "service_check": summarize_metric_vector(service_metrics),
             },
             "logs": logs[:10],
             "traces": {
@@ -203,3 +311,8 @@ def run_rca() -> Dict[str, Any]:
             },
         },
     }
+
+    rca_id = save_rca("generic_alert", result)
+    result["rca_id"] = rca_id
+
+    return result

@@ -1,0 +1,14 @@
+[Unit]
+Description=RCA History MCP
+After=network.target
+
+[Service]
+User=deploy
+WorkingDirectory={{ history_app_dir }}
+Environment="RCA_HISTORY_DB_PATH={{ rca_history_db_path }}"
+ExecStart={{ history_app_dir }}/venv/bin/uvicorn app:app --host 0.0.0.0 --port {{ history_port }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

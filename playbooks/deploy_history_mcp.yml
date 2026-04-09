@@ -1,0 +1,79 @@
+---
+- name: Deploy RCA History MCP
+  hosts: ai
+  become: true
+
+  vars:
+    venv_path: "{{ history_app_dir }}/venv"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+
+    - name: Install required packages
+      apt:
+        name:
+          - python3
+          - python3-venv
+          - python3-pip
+        state: present
+
+    - name: Create app directory
+      file:
+        path: "{{ history_app_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create data directory
+      file:
+        path: "/data"
+        state: directory
+        mode: "0755"
+
+    - name: Copy History app
+      copy:
+        src: files/app_history.py
+        dest: "{{ history_app_dir }}/app.py"
+        mode: "0644"
+
+    - name: Copy requirements.txt
+      copy:
+        src: files/requirements.txt
+        dest: "{{ history_app_dir }}/requirements.txt"
+        mode: "0644"
+
+    - name: Create virtualenv
+      command: python3 -m venv {{ venv_path }}
+      args:
+        creates: "{{ venv_path }}/bin/activate"
+
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ history_app_dir }}/requirements.txt"
+        virtualenv: "{{ venv_path }}"
+
+    - name: Deploy systemd service
+      template:
+        src: files/history-mcp.service.j2
+        dest: "/etc/systemd/system/{{ history_service_name }}.service"
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart history-mcp
+
+    - name: Enable and start service
+      systemd:
+        name: "{{ history_service_name }}"
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Restart history-mcp
+      systemd:
+        name: "{{ history_service_name }}"
+        state: restarted

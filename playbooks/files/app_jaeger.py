@@ -19,7 +19,7 @@ app = FastAPI(
     description="Read-only bridge for Jaeger trace queries used by AI/LLM investigations.",
 )
 
-# ---------- Logging JSON ----------
+# ---------- Logging JSON ----Q------
 logger = logging.getLogger("jaeger_mcp")
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
