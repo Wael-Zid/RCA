@@ -212,10 +212,6 @@ journalctl -u rca-orchestrator -f
 - Aucun endpoint d’écriture
 - Accès réseau à restreindre (firewall recommandé)
 
-Améliorations possibles :
-- Authentification API
-- HTTPS via reverse proxy
-
 ---
 
 13. PERFORMANCE
@@ -235,3 +231,15 @@ Améliorations possibles :
 - Absence de ML (corrélation heuristique)
 
 ---
+
+
+
+
+
+Le système est conçu pour être piloté par un LLM.
+Dans cette version MVP, l’analyse est réalisée via des règles Python.
+
+Améliorations futures :
+- Intégration OpenAI / Ollama
+- Génération automatique de RCA en langage naturel
+- Décision ESCALATE / DISMISS
